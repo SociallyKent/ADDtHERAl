@@ -1,24 +1,127 @@
--- do return end
+-- print("hi")
 global = {lagControl = true}
-awaken = setmetatable({}, {__call = table.insert})
 --
 inext = ipairs()
 toboolean = |var| var and true or false
 bit = bit32
 --
-awaken(function()
+
+local caller = function(self, idx, val)
+	local fnc = (type(idx) == "number" or not val) and table.insert or rawset
+	fnc(self, idx, val)
+end
+local Awaken = setmetatable({}, { __call = caller})
+local Render = setmetatable({}, { __index = {OnPlugin = {}}, __call = function(self, idx, val)
+	local fnc = (type(idx) == "number" or not val) and table.insert or rawset
+	if not(val) and type(idx) == "function" then
+		idx, val = val, idx
+	end
+	if idx and string.find(idx, "(On Plugin)", nil, true) then
+		self = self.OnPlugin
+	end
+	fnc(self, idx, val)
+end})
+setmetatable(_G, {
+	__newindex = function(self, idx, val)
+		if nil then
+		elseif idx == "reAwaken" then
+			if type(val) ~= "function" then return end
+			Awaken(val)
+		elseif idx == "reRender" then
+			if type(val) ~= "function" then return end
+			Render(val)
+		else 
+			return rawset(_G, idx, val)
+		end
+	end,
+	__index = {reAwaken = Awaken, reRender = Render}
+})
+;(function() function reAwaken()
+	
+	Quaver = {
+		IsKeyDown = utils.IsKeyDown,
+		
+		Objects = map.HitObjects,
+		CapTas = map.Bookmarks,
+		Tempos = map.TimingPoints,
+		Layers = map.EditorLayers,
+		Groups = map.TimingGroups,
+		
+		GetGroupIds = map.GetTimingGroupIds,
+		GetCaptaAt = map.GetBookmarkAt,
+		GetFactorAt = map.GetScrollSpeedFactorAt,
+		GetScrollAt = map.GetScrollVelocityAt,
+		GetTempoAt = map.GetTimingPointAt,
+		
+		Size = state.WindowSize,
+	}
+		
+end end)();
+;(function()
+	local illkeys = ipairs(keys)
+	local tblkeys = {}
+	for i, key in illkeys do
+		tblkeys[i] = tostring(key)
+	end
+	
+	local KeyBinds = {}
+	Board = {
+		Down = {},
+		Pressed = {},
+		Released = {},
+	}
+	
+	function Board.MakeCombo(...)
+		local str = ""
+		local old = {...}
+		local new = {}
+		for i = 1, #old, 2 do
+			new[(i - 1)/2 + 1] = (old[i + 1] and "%s" or "not(%s)"):format("Board[%s]['"..old[i].."']")
+		end
+		
+		new[1] = new[1]:format("typ")
+		for i = 2, #new do
+			new[i] = new[i]:format("'Down'")
+		end
+		new[#new + 1] = "not(gui.IsAnyItemActive())"
+		
+		return eval("return |typ| "..table.concat(new, " and "))
+	end
+	local fnc = Board.MakeCombo("A", true)
+	local _P = Board.Pressed
+	local _D = Board.Down
+	local _R = Board.Released
+	local function draw()
+		local getDown = utils.IsKeyDown
+		for i = 1, #tblkeys do
+			local key = tblkeys[i]
+			local isDown = getDown(key)
+			_P[key] = isDown and not(_D[key])
+			_R[key] = not(isDown) and _D[key]
+			_D[key] = isDown
+		end
+		
+	end
+end)();
+Awaken(function()
+	local ImGui = getmetatable(imgui).__index
+	imgui = nil --- get rid of the global version
 	gui = {
 		NextItemWidth = "SetNextItemWidth",
 		NextWindowSize = "SetNextWindowSize",
 		NextWindowSizeClamp = "SetNextWindowSizeConstraints",
+		
 		PullCol = "PopStyleColor",
-		PullStyleCol = "PopStyleColor",
-		PullTree = "TreePop",
-		PullVar = "PopStyleVar",
 		PushCol = "PushStyleColor",
+		PullStyleCol = "PopStyleColor",
 		PushStyleCol = "PushStyleColor",
+		
+		PullTree = "TreePop",
 		PushTree = "TreePush",
+		
+		PullVar = "PopStyleVar",
 		PushVar = "PushStyleVar",
+		
 		SetTableColumn = "TableSetColumnIndex",
 		TableSetColumn = "TableSetColumnIndex",
 		TextFormatless = "TextUnformatted",
@@ -31,20 +134,20 @@ awaken(function()
 			local key = string.lower(INDEX)
 			key = key:gsub("^pull", "pop", 1)
 			key = key:gsub("^close", "end", 1)
-			if rawget(gui, key) or imgui[key] then
-				rawset(self, INDEX, rawget(gui, key) or imgui[key])
-				return self[INDEX]
-			end
+			
+			rawset(self, INDEX, rawget(gui, key) or ImGui(nil, key))
+			return self[INDEX]
 		end,
 		__newindex = function(self, INDEX, VALUE)
 			rawset(self, INDEX:lower(), VALUE)
 		end
 	})
 	for i, v in pairs(gui) do
-		gui[i] = imgui[v]
+		gui[i] = ImGui(nil, v)
 	end
 	gui.Scale = state.Scale
 	gui.FontSize = gui.GetFontSize()
+	--[=[ str, tbl|vec ]=]
 	function gui.ButtonDisabled(TEXT, SIZE)
 		gui.BeginDisabled()
 		gui.Button(TEXT, SIZE)
@@ -70,6 +173,8 @@ awaken(function()
 			end
 		end
 	end
+	--[=[ str, num, num, num, ¿num, ¿num, ¿format, ¿imgui_slider_flags ]=] 
+	--[=[ nil|num, nil|true ]=]
 	function gui.InputClamp(LABEL, VALUE, MIN, MAX, MINSTEP, MAXSTEP, FORMAT, FLAGS)
 		local Active, Output = gui.InputFloat(
 			LABEL,
@@ -162,7 +267,6 @@ awaken(function()
 	end
 	local events = {}
 	function gui_button(SEND, NAME, SIZE)
-		local name = SEND
 		SEND = SEND and hotkey[SEND] or SEND
 		if SEND and SEND("down") then
 			local col = gui.GetColorU32(imgui_col.ButtonActive)
@@ -170,8 +274,7 @@ awaken(function()
 		else
 			SEND = false
 		end
-		local button = gui.Button(NAME, SIZE) or SEND and SEND("press")
-		-- gui.SameLine()
+		local button = gui.Button(NAME, SIZE) or (SEND and SEND("press"))
 		if SEND then
 			gui.PullStyleCol(1)
 		end
@@ -198,8 +301,95 @@ awaken(function()
 	end
 end
 end)
+;(function()
+	local system = {}
+	local Render
+	local Array
+	local Table
+	Awaken(function()
+		system = {
+			render = Render,
+			loader = loader,
+		}
+		local meta = setmetatable({}, {__metatable = "hi"})
+		plugin.render["ImmaRender+"] = function()
+			for _, str in inext, Array[math.tiny], 0 do
+				Table[str]()
+			end
+			for i = 1, #Array do
+				Table[Array[i]]()
+			end
+			for _, str in inext, Array[math.huge], 0 do
+				Table[str]()
+			end
+		end
+		Array = table.meta:index({[math.tiny] = {}, [math.huge] = {}}, table)
+		Table = table.meta:index({}, table)
+	end)
+	--[=[ variable, function, ¿number(tiny, huge) ]=]
+	--[=[  ]=]
+	function Render(STR, FNC, IDX)
+		if IDX then
+			if true
+				and IDX ~= 0
+				and IDX ~= 2
+			then
+				goto skip
+			end
+			if not(FNC) or Table[STR] then
+				local idx = table.find(Array[IDX], STR)
+				table.remove(Array[IDX], idx)
+				Table[STR] = nil
+				return
+			end
+			table.insert(Array[IDX], STR)
+			Table[STR] = FNC
+			::skip::
+		end
+		if not(FNC) or Table[STR] then
+			local idx = table.find(Array, STR)
+			table.remove(Array, idx)
+			Table[STR] = nil
+			return
+		end
+		table.insert(Array, STR)
+		Table[STR] = FNC
+	end
+	function loader(FNC, IDX)
+		local bundle = {}
+		local output = nil
+		local carret = coroutine.create(FNC)
+		Render(bundle, function()
+			if output then
+				carret(unpack(output))
+			else
+				carret()
+			end
+			-- if not coroutine.running(carret) then
+				-- carret = nil
+				-- render(bundle, nil)
+				-- output = nil
+			-- end
+		end, IDX)
+		if not(FNC) or Table[STR] then
+			local idx = table.find(Array, STR)
+			table.remove(Array, idx)
+			Table[STR] = nil
+			return
+		end
+		table.insert(Array, STR)
+		Table[STR] = FNC
+	end
+end)();
 
-awaken(function()
+function reAwaken()
+end
+function reAwaken()
+end
+Awaken(function()
+	Quaver = table.meta:lower{
+		
+	}
 	quaver = table.meta:lower{
 		IsKeyDown = utils.IsKeyDown,
 
@@ -220,7 +410,7 @@ awaken(function()
 		Size = state.WindowSize,
 		}
 end)
-awaken(function()
+Awaken(function()
 	editor = table.meta:lower{
 		time = state.SongTime,
 
@@ -318,7 +508,7 @@ awaken(function()
 		"tempos", [[v.StartTime..","..v.Bpm..","..(v.Hidden and 0 or 1)]]
 	)
 end)
-awaken(function()
+Awaken(function()
 	local meta = {}
 	chart = {}
 	
@@ -533,9 +723,9 @@ function util.GetLaneObjects(OBJECTS)
 	end
 	return unique
 end
-awaken(function() table.meta:lower(util) end)
+Awaken(function() table.meta:lower(util) end)
 
-global.advanced = true
+global.advanced = false
 global.step = 5
 global.noteinfo = false
 plugin = {
@@ -546,7 +736,7 @@ plugin = {
 	render = {},
 	renderOnPlugin = {},
 	}
-awaken(function()
+Awaken(function()
 	plugin.width = plugin.width*gui.scale
 	plugin.mini = {plugin.width, 0}
 	plugin.maxi = {plugin.width, -1}
@@ -554,7 +744,7 @@ awaken(function()
 end)
 math.randomseed(os.time())
 clock = {}
-awaken(function()
+Awaken(function()
 	clock.StartTime = os.time()
 	clock.EditorTime = gui.GetTime
 	clock.QuaverTime = os.clock
@@ -698,7 +888,7 @@ board.alt = || board.down["LeftAlt"] or board.down["RightAlt"]
 board.ctrl = || board.down["LeftControl"] or board.down["RightControl"]
 hotkey = {}
 -- T|Shift+T|S|N|R|B|M|V|G|Ctrl+Alt+L|Ctrl+Alt+E|O
-awaken(function()
+Awaken(function()
 	board.setcheck(true, "LeftShift", "RightShift", "LeftAlt", "RightAlt", "LeftControl", "RightControl")
 	board.setcheck(true, "Up", "Down")
 	board.setcheck(true, "T", "S", "R", "N", "O")
@@ -942,7 +1132,27 @@ function table.clamp(X, MIN, MAX)
 	end
 	return X
 end
-
+local template = [[
+return function(TBL, LEN)
+	local @1 = @2
+	local len, v = LEN or #TBL
+	for i = 1, len do
+		v = TBL[i]
+		@3
+	end
+	return @4
+end
+]]
+local TemplCreate = |tem, tbl| eval(tem:gsub("@(%w+)", |i| tbl[tonumber(i)]))
+table.avg = TemplCreate(template, {"avg", "0", [[avg = avg + v]], [[avg/len]]})
+table.min = TemplCreate(template, {"min", "math.inf", [[if min > v then min = v end]], [[min]]})
+table.max = TemplCreate(template, {"max", "-math.inf", [[if max < v then max = v end]], [[max]]})
+-- table.avg = template:gsub("@(%w+)", {
+	-- Name = "avg",
+	-- Default = 0,
+	-- Body = [[avg = avg + v]],
+	-- Return = [[avg/len]]
+-- })
 function table.avg(TBL, LEN)
 	local avg = 0
 	local len = LEN or #TBL
@@ -998,6 +1208,7 @@ function table.icombine(TABLE1, TABLE2)
 	end
 	return TABLE1
 end
+
 --create a copy of TABLE.
 --[=[ tbl, ¿func ]=] -- input
 --[=[ tbl ]=] -- output
@@ -1095,7 +1306,19 @@ function table.normalize(TABLE, AVERAGE)
 end
 
 
-table.meta = {}
+table.meta = setmetatable({}, {
+	__index = function(SELF, IDX)
+		local strmeta = "__" .. IDX
+		rawset(SELF, IDX, function(_, TBL, VAL)
+			if not(VAL) and TBL then TBL, VAL = {}, TBL end
+			if not(TBL) then TBL = {} end
+			local meta = getmetatable(TBL) or {}
+			meta[strmeta] = VAL
+			return setmetatable(TBL, meta)
+		end)
+		return SELF[IDX]
+	end
+})
 function table.meta:lower(TBL)
 	local meta = {}
 	for i, v in pairs(TBL) do
@@ -1111,13 +1334,6 @@ function table.meta:lower(TBL)
 				return val
 	end end end
 	meta.__newindex = |self, idx, val| rawset(self, string.lower(idx) or idx, val)
-	return setmetatable(TBL, meta)
-end
-function table.meta:call(TBL, FNC)
-	if not(FNC) and TBL then TBL, FNC = {}, TBL end
-	if not(TBL) then TBL = {} end
-	local meta = getmetatable(TBL) or {}
-	meta.__call = FNC
 	return setmetatable(TBL, meta)
 end
 
@@ -1278,7 +1494,7 @@ __emoticon = {
 	animated = nil
 	}
 
-awaken(function()
+Awaken(function()
 	local pos = {0, 0}
 	local Im = {}
 	local ImC = gui.GetIO()
@@ -1552,6 +1768,31 @@ function GatherSVStatsData(ENUM)
 	SVstatsTime = os.clock()
 end
 
+local function advancedmodeon()
+	local Editor = menu["Editor"]
+	local defEditor = def_menu["Editor"]
+	if not(table.find(Editor, [[Create Map Copy]])) then
+		table.insert(Editor, table.find(defEditor, "Create Map Copy"), "Create Map Copy")
+	end
+
+	if Editor[Editor.number] ~= Editor.string then
+		local idx = table.find(Editor, Editor.string)
+		Editor.number = idx or 1
+		if not(idx) then Editor.string = Editor[1] end
+	end
+end
+local function advancedmodeoff()
+	local Editor = menu["Editor"]
+	local idx = table.find(Editor, [[Create Map Copy]])
+	_ = idx and table.remove(Editor, idx)
+	
+	if Editor[Editor.number] ~= Editor.string then
+		local idx = table.find(Editor, Editor.string)
+		Editor.number = idx or 1
+		if not(idx) then Editor.string = Editor[1] end
+	end
+end
+
 ImColor = {}
 
 local time = os.clock()
@@ -1604,7 +1845,6 @@ end
 local stx = {}
 local vui = {}
 local size = {sml = 0.13, lrg = 0.26}
-local menu
 
 local function listable(DATA, ACTIVE)
 	ACTIVE = ACTIVE == nil and 1 or ACTIVE
@@ -1735,6 +1975,7 @@ function vui.steps(SIZE, SUB, ADD, DIV, MUL)
 		gui.PullButtonRepeat()
 	end
 end
+
 local function settingGeneral(ENUM)
 	gui.Text"General"
 	local active = false
@@ -1745,10 +1986,14 @@ local function settingGlobal(ENUM)
 	-- gui.Text "Global"
 	local active = false
 	
+	gui.BeginGroup()
 	local Active = gui.Checkbox("Advanced", global.advanced)
 	active = Active and (stx.bool(global, "advanced") or true) or active
+	HoverHelpTip[[Adds extra features. Expense of complexity]]
+	gui.CloseGroup()
+	local size = gui.GetItemRectSize()[1]
 	
-	gui.NextItemWidth(gui.GetItemRectSize()[1])
+	gui.NextItemWidth(size)
 	local Active, Output = gui.InputInt("Slider Step Size", global.step, 1, 0, 1)
 	if Active then active, global.step = true, math.clamp(Output, 1, 33) end
 	
@@ -1757,7 +2002,7 @@ end
 local function settingWidgets(ENUM)
 	-- gui.Text"Widgets"
 	local active = false
-	
+
 	local Active, Output = gui.Checkbox("Note Info Widget", global.noteinfo or false)
 	if Active then
 		render("NoteInfoWidget", Output and addon.NoteInfoWidget or nil)
@@ -1809,6 +2054,13 @@ local function renderSettingLog()
 		read["advanced"] = global.advanced
 		read["step"] = global.step
 		write(read)
+		if global.advanced then
+			advancedmodeon()
+			print(true)
+		else
+			print(false)
+			advancedmodeoff()
+		end
 	end
 	gui.Close()
 end
@@ -1820,6 +2072,10 @@ local function renderChangeLog()
 		render("Change Log", nil)
 		gui.Close()
 	end
+	local versions = {
+		["v1.0"] = [[Creation of something new. Hopeful you have fun!]],
+		["v1.0.3"] = [[Added "Special""Displacement", rethought "Special""Teleport"'s UI. Added "Copy" to "Editor". Redesigned keybind buttons, to get more exspected results.]],
+	}
 	gui.Close()
 end
 
@@ -1864,7 +2120,7 @@ local function InfoTab(WIDTH)
 	end
 	--]=]
 	gui.TextFormatless[[Version: ]]; gui.Sameline(0, 0)
-	gui.TextLinkOpenURL("1.0", "https://codeberg.org/SociallyKent/ADDtHERAl/releases/tag/v1.0")
+	gui.TextLinkOpenURL("1.1A", "https://codeberg.org/SociallyKent/ADDtHERAl/releases/tag/v1.1A")
 	if gui.IsItemActive() then
 		global.lagControl = false -- skip next frame lagControl
 	end
@@ -1923,7 +2179,7 @@ local function EditorTab(self, WIDTH)
 				menu["Editor"].Types = table.copy(def_menu["Editor"].Types)
 				enum.Types = menu["Editor"].Types
 			end
-			
+			print("Reset Eidtor")
 			self[self.string] = setmetatable(enum, getmetatable(self[self.string]))
 	end end
 	
@@ -1963,6 +2219,16 @@ function addon.NoteInfoWidget()
 		end
 		gui.CloseTooltip()
 	end
+end
+Quickie = {}
+function Quickie.Delete(TYPE, DATA, I, J)
+	DATA = util.getbetween(DATA, I, J)
+	local len = #DATA
+	if len == 0 then return end
+	if len >= 2 and DATA[len].StartTime == J then
+		DATA[#DATA] = nil
+	end
+	action.Delete(TYPE, DATA)
 end
 
 local function createStandardMenu(ENUM, WIDTH)
@@ -2045,10 +2311,11 @@ local function createStandardMenu(ENUM, WIDTH)
 	end
 	local asScroll = gui_button("exec0", "Place As Scrolls", {WIDTH*(5/8), 0})
 	gui.Sameline()
-	_ = gui.Button("Delete##Scrolls", {WIDTH/6, 0}) and action.Delete("Scrolls", util.getbetween(quaver.scrolls(), util.GetOffsets(chart.SelectedObjects, "StartTime")))
+
+	_ = gui.Button("Delete##Scrolls", {WIDTH/6, 0}) and Quickie.Delete("Scrolls", quaver.scrolls(), util.GetOffsets(chart.SelectedObjects, "StartTime"))
 	local asFactor = gui_button("exec1", "Place As Factors", {WIDTH*(5/8), 0})
 	gui.Sameline()
-	_ = gui.Button("Delete##Factors", {WIDTH/6, 0}) and action.Delete("Factors", util.getbetween(quaver.factors(), util.GetOffsets(chart.SelectedObjects, "StartTime")))
+	_ = gui.Button("Delete##Factors", {WIDTH/6, 0}) and Quickie.Delete("Factors", quaver.factors(), util.GetOffsets(chart.SelectedObjects, "StartTime"))
 	if disable then
 		gui.CloseDisabled()
 		gui.CloseGroup()
@@ -2241,7 +2508,6 @@ local function SelectCycleMenu(ENUM, WIDTH, gather)
 			if not(v) then break end
 			table.icombine(tbl, v)
 		end
-		-- print(tbl)
 		actions.SetHitObjectSelection(tbl)
 	end
 end
@@ -2335,6 +2601,28 @@ menu["Create"].final["None"] = nil
 menu["Create"].final["Custom"] = nil
 -- menu["Create"].final["Overwrite"] = nil
 menu["Create"].final:kill()
+Awaken(function()
+	math.cfloat = utils.ToFloat
+	math.chalf = utils.ToHalf
+end)
+local function getDisplacement(scrolls, startTime, endTime)
+    local velocity = quaver.GetScrollAt(startTime)
+    velocity = velocity and velocity.Multiplier or 1
+
+    local dist = 0
+    local time = startTime
+
+    for i = 1, #scrolls do
+        local scroll = scrolls[i]
+        if scroll.StartTime > startTime and scroll.StartTime < endTime then
+            dist = dist + velocity * (scroll.StartTime - time)
+            time = scroll.StartTime
+            velocity = scroll.Multiplier
+        end
+    end
+
+    return dist + velocity * (endTime - time)
+end
 function calcDisplacement(TABLE, TIMES)
 	local dist = 0
 	for i = 1, #TABLE - 1 do
@@ -2347,8 +2635,8 @@ function calcDisplacement(TABLE, TIMES)
 end
 function calcDisplacementSV(time, displacement, duration)
     local Mult = 1/duration
-	local current = (quaver.GetScrollAt(time) or {Multiplier = 1}).Multiplier
-    return current + Mult*displacement
+	local current = (quaver.GetScrollAt(time) or {Multiplier = 1})
+	return displacement*Mult + current.Multiplier
 end
 
 function calcChinchilla(ENUM) end
@@ -3061,7 +3349,7 @@ circular.Type["Start / End"] = function(ENUM, WIDTH)
 end
 
 --[[local combo = menu["Create"]["Standard"]["Combo"]
-awaken(function()
+Awaken(function()
 	combo.Standard = table.clone(menu["Create"]["Standard"])
 end)
 --]]
@@ -3124,8 +3412,134 @@ random.Type["Normal"] = nil
 random.Type["Uniform"] = nil
 random.Type:kill()
 ]]
-
-
+function Delete(START, END, FLAGS)
+	if FLAGS["scrolls"] then end
+	if FLAGS["factors"] then end
+	if FLAGS["objects"] then end
+	if FLAGS["tempos"] then end
+	if FLAGS["captas"] then end
+end
+local function CreateSpeicalDisplace(ENUM, WIDTH)
+	local Behavior = ENUM.Behavior
+	local Type = ENUM.Type
+	gui.PushItemWidth(-1)
+	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
+	
+	local swap = gui_button("swap0", "Swap", {WIDTH*size.lrg, 0}); gui.Sameline()
+	if swap then; active = true
+		Behavior.number = Behavior.number == 1 and 2 or 1
+		Behavior.string = Behavior[Behavior.number]
+	end
+	gui_ComboList("##Behavior", Behavior)
+	gui.TableNextColumn()
+	gui.TextFormatless[[Displace From]]
+	
+	gui.TableNextRow()
+	gui.TableNextColumn()
+	
+	local nega = gui_button("nega0", "Neg.", {WIDTH*size.lrg, 0}); gui.Sameline()
+	_ = nega and stx.nega(ENUM, "Average")
+	_, ENUM.Average = gui.InputFloat("##SV Average", ENUM.Average, 0, 0, "%.2f", 1)
+	gui.TableNextColumn()
+	gui.TextFormatless[[SV Average]]
+	
+	gui.TableNextRow()
+	gui.TableNextColumn()
+	local disable = not(chart.SelectedObjects[2])
+	if disable then
+		gui.BeginGroup()
+		gui.BeginDisabled()
+	end
+	local displace = gui_button("exec0", "displace", halfwidth)
+	gui.Sameline()
+	gui.ButtonDisabled("", halfwidth)
+	if disable then
+		gui.CloseDisabled()
+		gui.CloseGroup()
+		gui.SetItemToolTip[[Select 2 or more Notes!]]
+	end
+	
+	if displace and not(disable) then
+		local addite = {}
+		local qscrolls = quaver.scrolls()
+		local select = chart.SelectedObjects
+		local unique = table.unique(table.gather(select, "StartTime"))
+		local Start, Close = util.GetOffsets(select, "StartTime")
+		local len = 0.1
+		for i = 1, #unique - 1 do
+			local Start = unique[i]
+			local Close = unique[i + 1]
+			local scrolls, idx = util.GetBetween(qscrolls, Start, Close)
+			if scrolls[1].StartTime > Start then
+				table.insert(scrolls, 1, qscrolls[idx - 1] or {StartTime = Start, Multiplier = 1})
+				idx = idx - 1
+			end
+			if scrolls[#scrolls].StartTime >= Close then
+				scrolls[#scrolls] = nil
+			end
+			local mul = table.gather(scrolls, "Multiplier")
+			local tim = table.gather(scrolls, "StartTime")
+			local id = 2
+			local time = tim[id]
+			while time and time < Start + len do
+				print("removed", id, tim[2], mul[2])
+				table.remove(mul, 2)
+				table.remove(tim, 2)
+				time = tim[id]
+			end
+			if not table.find(tim, Start + len) then
+				table.insert(mul, 1, mul[1])
+				table.insert(tim, 1, tim[1] + len)
+			end
+			local Target = Close - Start
+			-- local currDist
+			local currDist = calcDisplacement(mul, tim)
+			local targDist = ENUM.Average*(Close - Start)
+			local scalDist = targDist - currDist
+			if Behavior.string == "Start" then
+				local val = calcDisplacementSV(Start, scalDist, len)
+				-- local oldDist = getDisplacement(qscrolls, Start, Start + len)
+				-- local val = (oldDist + scalDist)/len
+				table.insert(addite, val)
+			else
+				local val = calcDisplacementSV(Close - len, scalDist, len)
+				-- local oldDist = getDisplacement(qscrolls, Close - len, Close)
+				-- local val = (oldDist + scalDist) / len
+				table.insert(addite, val)
+			end
+		end
+		local Rem, Add
+		if Behavior.string == "Start" then
+			local i, j
+			Rem, i, j = util.GetBetween(qscrolls, Start, Start)
+			local val = qscrolls[j] or qscrolls[j - 1]
+			val = val and val.Multiplier or 1
+			Add = {
+				editor.CreateScroll(Start, addite[1]),
+				editor.CreateScroll(Start + len, (qscrolls[j] or {Multiplier = 1}).Multiplier),
+			}
+		elseif Behavior.string == "End" then
+			local i, j
+			Rem, i, j = util.GetBetween(qscrolls, Close, Close)
+			local val = qscrolls[j] or qscrolls[j - 1]
+			val = val and val.Multiplier or 1
+ 			Add = {
+				editor.CreateScroll(Close - len, addite[1]),
+				editor.CreateScroll(Close, val),
+			}
+		else
+			error[[unknown {1}]]
+		end
+		if Add[1] or Rem[1] then
+			actions.PerformBatch{
+				editor.CreateAction("AddScrollVelocityBatch", Add),
+				editor.CreateAction("RemoveScrollVelocityBatch", Rem),
+			}
+		end
+	end
+	
+	gui.PullItemWidth(1)
+end
 local function CreateSpecialTeleport(ENUM, WIDTH)
 	gui.PushItemWidth(-1)
 	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
@@ -3201,10 +3615,21 @@ listable(menu["Create"]["Special"], "Teleport")
 -- menu["Create"]["Special"]["Flicker"] = table.meta:call({}, || nil)
 -- menu["Create"]["Special"]["Stutter"] = table.meta:call({}, || nil)
 -- menu["Create"]["Special"]["Teleport Stutter"] = table.meta:call({}, || nil)
+menu["Create"]["Special"]["Displace"] = table.meta:call({
+	Behavior = listable({}, "Start"),
+	Type = listable({}, "Average"),
+	Average = 1,
+}, CreateSpeicalDisplace)
 menu["Create"]["Special"]["Teleport"] = table.meta:call({
 	Distance = 9600,
 	After = false,
 }, CreateSpecialTeleport)
+
+local displace = menu["Create"]["Special"]["Displace"]
+displace.Behavior["Start"] = nil
+displace.Behavior["End"] = nil
+displace.Behavior:kill()
+
 --[[
 listable(menu["Create"]["Vibrato"], "Linear", false, "enum")
 menu["Create"]["Vibrato"]["Exponential"] = table.meta:call({}, || nil)
@@ -3247,111 +3672,7 @@ local function create0(DATA, ENCODER, KEYS)
 	return func(DATA, ENCODER)
 end
 --[[ Menu Editor ]]
-local function editorScaleDispMenu(ENUM, WIDTH)
-	local Behavior = ENUM.Behavior
-	local Type = ENUM.Type
-	gui.PushItemWidth(-1)
-	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
-	
-	local swap = gui_button("swap0", "Swap", {WIDTH*size.lrg, 0}); gui.Sameline()
-	if swap then; active = true
-		Behavior.number = Behavior.number == 1 and 2 or 1
-		Behavior.string = Behavior[Behavior.number]
-	end
-	gui_ComboList("##Behavior", Behavior)
-	gui.TableNextColumn()
-	gui.TextFormatless[[Displace From]]
-	
-	gui.TableNextRow()
-	gui.TableNextColumn()
-	
-	local nega = gui_button("nega0", "Neg.", {WIDTH*size.lrg, 0}); gui.Sameline()
-	_ = nega and stx.nega(ENUM, "Average")
-	_, ENUM.Average = gui.InputFloat("##SV Average", ENUM.Average, 0, 0, "%.2f", 1)
-	gui.TableNextColumn()
-	gui.TextFormatless[[SV Average]]
-	
-	gui.TableNextRow()
-	gui.TableNextColumn()
-	local disable = not(chart.SelectedObjects[2])
-	if disable then
-		gui.BeginGroup()
-		gui.BeginDisabled()
-	end
-	local displace = gui_button("exec0", "displace", halfwidth)
-	gui.Sameline()
-	gui.ButtonDisabled("", halfwidth)
-	if disable then
-		gui.CloseDisabled()
-		gui.CloseGroup()
-		gui.SetItemToolTip[[Select 2 or more Notes!]]
-	end
-	
-	if displace and not(disable) then
-		local addite = {}
-		local qscrolls = quaver.scrolls()
-		local select = chart.SelectedObjects
-		local unique = table.unique(table.gather(select, "StartTime"))
-		local Start, Close = util.GetOffsets(select, "StartTime")
-		local len = 1/50
-		for i = 1, #unique - 1 do
-			local Start = unique[i]
-			local Close = unique[i + 1]
-			local scrolls, idx = util.GetBetween(qscrolls, Start, Close)
-			if scrolls[1].StartTime > Start then
-				table.insert(scrolls, 1, qscrolls[idx - 1] or {StartTime = Start, Multiplier = 1})
-				idx = idx - 1
-			end
-			if scrolls[#scrolls].StartTime >= Close then
-				-- scrolls[#scrolls] = nil
-			end
-			local mul = table.gather(scrolls, "Multiplier")
-			local tim = table.gather(scrolls, "StartTime")
-			local Target = Close - Start
-			local currDist = calcDisplacement(mul, tim)
-			local targDist = ENUM.Average*(Close - Start)
-			local scalDist = targDist - currDist
-			if Behavior.string == "Start" then
-				local val = calcDisplacementSV(Start, scalDist, len)
-				table.insert(addite, val)
-			else
-				local val = calcDisplacementSV(Close - len, scalDist, len)
-				table.insert(addite, val)
-			end
-		end
-		local Rem, Add
-		if Behavior.string == "Start" then
-			local i, j
-			Rem, i, j = util.GetBetween(qscrolls, Start, Start)
-			local val = qscrolls[j] or qscrolls[j - 1]
-			val = val and val.Multiplier or 1
-			Add = {
-				editor.CreateScroll(Start, addite[1]),
-				editor.CreateScroll(Start + len, (qscrolls[j] or {Multiplier = 1}).Multiplier),
-			}
-		elseif Behavior.string == "End" then
-			local i, j
-			Rem, i, j = util.GetBetween(qscrolls, Close, Close)
-			local val = qscrolls[j] or qscrolls[j - 1]
-			val = val and val.Multiplier or 1
- 			Add = {
-				editor.CreateScroll(Close - len, addite[1]),
-				editor.CreateScroll(Close, val),
-			}
-		else
-			error[[unknown {1}]]
-		end
-		if Add[1] or Rem[1] then
-			actions.PerformBatch{
-				editor.CreateAction("AddScrollVelocityBatch", Add),
-				editor.CreateAction("RemoveScrollVelocityBatch", Rem),
-			}
-		end
-	end
-	
-	gui.PullItemWidth(1)
-end
-local function editorCopyMenu(ENUM, WIDTH)
+local function EditorCopyMenu(ENUM, WIDTH)
 	local Types = ENUM.Types
 	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
 	
@@ -3409,7 +3730,6 @@ local function editorCopyMenu(ENUM, WIDTH)
 				table.insert(tbl[#tbl], data)
 			end
 		end
-		-- print()
 		local select = table.unique(table.gather(chart.SelectedObjects, "StartTime"))
 		local Actions = {}
 		for i = 1, #select - 1 do
@@ -3449,7 +3769,22 @@ local function editorCopyMenu(ENUM, WIDTH)
 		_, Types[name] = gui.CheckBox(name, Types[name])
 	end
 end
-local function editorDeleteMenu(ENUM, WIDTH)
+
+local function EditorDeclutterMenu(ENUM, WIDTH)
+	local Types = ENUM.Types
+	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
+	gui.PushItemWidth(-1)
+	
+	gui.ButtonDisabled([[]], { WIDTH*size.lrg, 0 }); gui.Sameline()
+	active = gui_ComboList("##Types", Types) or active
+	
+	gui.TableNextRow()
+	gui.TableNextColumn()
+	local active = Types[Types.string](ENUM, WIDTH)
+	
+	gui.PullItemWidth()
+end
+local function EditorDeleteMenu(ENUM, WIDTH)
 	local Types = ENUM.Types
 	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
 
@@ -3548,10 +3883,10 @@ local function editorDeleteMenu(ENUM, WIDTH)
 	gui.TableNextColumn()
 	for i = 1, #Types do
 		local name = Types[i]
-		_, Types[name] = gui.CheckBox(name, Types[name])
+		_, Types[name] = gui.CheckBox(name, Types[name] or false)
 	end
 end
-local function editorMapCopyMenu(ENUM, WIDTH)
+local function EditorMapCopyMenu(ENUM, WIDTH)
 	local Types = ENUM.Types
 	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
 	local copy = gui_button("exec0", "Create", halfwidth); gui.Sameline()
@@ -3659,7 +3994,7 @@ local function editorMapCopyMenu(ENUM, WIDTH)
 		_, Types[name] = gui.CheckBox(name, Types[name])
 	end
 end
-local function editorOffsetMenu(ENUM, WIDTH)
+local function EditorOffsetMenu(ENUM, WIDTH)
 	local Types = ENUM.Types
 	
 	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
@@ -3762,15 +4097,15 @@ local function editorOffsetMenu(ENUM, WIDTH)
 		_, Types[name] = gui.CheckBox(name, Types[name])
 	end
 end
-local function editorResnapMenu(ENUM, WIDTH)
+local function EditorResnapMenu(ENUM, WIDTH)
+	-- error("wert", 3)
 	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
 	local Find = gui_button("exec0", "Find", halfwidth); gui.Sameline()
 	gui.ButtonDisabled(ENUM.lenData or [[]], halfwidth)
 	
 	gui.PushItemWidth(WIDTH/2 + ImStyle.ItemPad[1]/2)
-	_, ENUM.Offset = gui.InputFloat("Buffer", ENUM.Offset, 0.1, 0.01, "%gms", 1)
-	-- local context = gui.GetCurrentContext()
-	-- print(context[1])
+	local Active, Output = gui.InputFloat("Buffer", ENUM.Offset, 0.1, 0.01, "%gms", 1)
+	if Output then ENUM.Offset = Output end
 	_ = DrawHoverHelp() and ToolTip(
 		[[Buffer range for search.]].."\n"..
 		[[- Lower: may mistake snapped notes.]].."\n"..
@@ -3852,6 +4187,7 @@ local function editorResnapMenu(ENUM, WIDTH)
 			gui.PullButtonRepeat()
 			if up or dw then
 				ENUM.StartIdx = math.clamp(ENUM.StartIdx + (up and -1 or dw and 1), 1, #ENUM.Data - ENUM.CloseIdx)
+				print(ENUM.Offset)
 				-- ENUM.CloseIdx = math.clamp(ENUM.CloseIdx + (up and 1 or dw and -1), 1, #ENUM.Data - 1)
 			end
 		end
@@ -3869,31 +4205,33 @@ menu["Editor"].Types:kill()
 listable(menu["Editor"], "Delete")
 --[[ menu["Editor"]["Copy"] = table.meta:call({
 	Types = menu["Editor"].Types,
-}, editorCopyMenu) ]]
+}, EditorCopyMenu) ]]
 menu["Editor"]["Create Map Copy"] = table.meta:call({
 	Types = menu["Editor"].Types,
 	Offset = 0,
-}, editorMapCopyMenu)
+}, EditorMapCopyMenu)
+menu["Editor"]["Declutter"] = table.meta:call({
+	Types = listable({}, "Scrolls"),
+	SpUpper = 0, -- speed
+	SpLower = 0,
+	TiUpper = 0, -- time
+	TiLower = 0,
+}, EditorDeclutterMenu)
 menu["Editor"]["Delete"] = table.meta:call({
 	Types = menu["Editor"].Types,
-}, editorDeleteMenu)
+}, EditorDeleteMenu)
 menu["Editor"]["Detect Unsnapped"] = table.meta:call({
 	Data = false,
 	Count = 2,
 	Snaps = {12, 16},
-	Offset = 0.5,
+	Offset = 0.3,
 	StartIdx = 1,
 	CloseIdx = 14,
-}, editorResnapMenu)
+}, EditorResnapMenu)
 menu["Editor"]["Offset"] = table.meta:call({
 	Types = menu["Editor"].Types,
 	Offset = 0,
-}, editorOffsetMenu)
---[[ menu["Editor"]["SV Displace"] = table.meta:call({
-	Behavior = listable({}, "Start"),
-	Type = listable({}, "Average"),
-	Average = 1,
-}, editorScaleDispMenu) ]]
+}, EditorOffsetMenu)
 menu["Editor"]:kill()
 
 menu["Editor"].Types = listable({})
@@ -3904,10 +4242,159 @@ menu["Editor"].Types.Tempos = false
 menu["Editor"].Types.Captas = false
 menu["Editor"].Types:kill()
 
--- local ScaleDisp = menu["Editor"]["SV Displace"]
--- ScaleDisp.Behavior["Start"] = nil
--- ScaleDisp.Behavior["End"] = nil
--- ScaleDisp.Behavior:kill()
+local declutter = menu["Editor"]["Declutter"]
+declutter.Types.Scrolls = function(ENUM, WIDTH)
+	local halfwidth = {WIDTH/2 - ImStyle.ItemPad[1]/2, 0}
+
+	if global.advanced then
+		local rest = gui.Button("Reset##SpBuffer", {WIDTH*size.lrg, 0}); gui.Sameline()
+		_ = rest and stx.rest(ENUM, {"SpLower", SpLower = 0; "SpUpper", SpUpper = 0})
+		local Active, Output = gui.InputFloat2("##SpBuffer", {ENUM.SpLower, ENUM.SpUpper}, "%gx", 1)
+		if Active then
+			local lower, upper = math.minmax(Output[1], Output[2])
+			ENUM.SpLower = lower
+			ENUM.SpUpper = upper
+		end
+		gui.TableNextColumn()
+		gui.TextFormatless[[Speed Buffer]]
+		
+		gui.TableNextRow()
+		gui.TableNextColumn()
+		local rest = gui.Button("Reset##TiBuffer", {WIDTH*size.lrg, 0}); gui.Sameline()
+		_ = rest and stx.rest(ENUM, {"TiLower", TiLower = 0; "TiUpper", TiUpper = 0})
+		local Active, Output = gui.InputFloat2("##TiBuffer", {ENUM.TiLower, ENUM.TiUpper}, "%g ms", 1)
+		if Active then
+			local lower, upper = math.minmax(Output[1], Output[2])
+			ENUM.TiLower = lower
+			ENUM.TiUpper = upper
+		end
+		gui.TableNextColumn()
+		gui.TextFormatless[[Time Buffer]]
+	else
+		local rest = gui.Button("Reset##SpBuffer", {WIDTH*size.lrg, 0}); gui.Sameline()
+		_ = rest and stx.rest(ENUM, {"SpLower", SpLower = 0; "SpUpper", SpUpper = 0})
+		local Active, Output = gui.InputFloat("##SpBuffer", ENUM.SpUpper, 0.01, 0.001, "%gx", 1)
+		if Active then
+			local upper = math.max(0, Output)
+			ENUM.SpUpper = upper
+			ENUM.SpLower = upper == 0 and 0 or -upper
+		end
+		gui.TableNextColumn()
+		gui.TextFormatless[[Speed Buffer]]
+		
+		gui.TableNextRow()
+		gui.TableNextColumn()
+		local rest = gui.Button("Reset##TiBuffer", {WIDTH*size.lrg, 0}); gui.Sameline()
+		_ = rest and stx.rest(ENUM, {"TiLower", TiLower = 0; "TiUpper", TiUpper = 0})
+		local Active, Output = gui.InputFloat("##TiBuffer", ENUM.TiUpper, 0.01, 0.001, "%g ms", 1)
+		if Active then
+			local upper = math.max(0, Output)
+			ENUM.TiUpper = upper
+			ENUM.TiLower = upper == 0 and 0 or -upper
+		end
+		gui.TableNextColumn()
+		gui.TextFormatless[[Time Buffer]]
+	end
+	
+	
+	gui.TableNextRow()
+	gui.TableNextColumn()
+	local declutter = gui.Button("Declutter", halfwidth)
+	
+	gui.TableNextRow()
+	gui.TableNextColumn()
+	gui.Text[[Scrolls]]
+	if declutter then
+		local Scrolls = quaver.scrolls()
+		if not(Scrolls[1]) then return end
+		local tbl, idx = {}, 0
+		local lastTime = false -- skip the first check
+		local lastMult = 1 -- default speed
+		local spLower, spUpper = ENUM.SpLower, ENUM.SpUpper
+		local tiLower, tiUpper = ENUM.TiLower, ENUM.TiUpper
+		for i, v in ipairs(Scrolls) do
+			local Time = v.StartTime
+			local lower, upper = tiLower, tiUpper
+			if lastTime and (lastTime + lower) <= Time and (lastTime + upper) >= Time then
+				idx = idx + 1
+				tbl[idx] = Scrolls[i - 1]
+			else
+				local Mult = v.Multiplier
+				local lower, upper = spLower, spUpper
+				if (lastMult + lower) <= Mult and (lastMult + upper) >= Mult then
+					idx = idx + 1
+					tbl[idx] = v
+				else
+					lastTime = Time
+					lastMult = Mult
+				end
+			end
+		end
+		if tbl[1] then
+			actions.RemoveScrollVelocityBatch(tbl)
+			print("i!", "Deleted:", "Scrolls - "..#tbl)
+		else
+			print[[Nothing found!]]
+		end
+	end
+end
+
+function reAwaken()
+	local function Conversions()
+		return
+		{
+			ScrollVelocity = "Scroll",
+			ScrollSpeedFactor = "Factor",
+			HitObject = "Object",
+			TimingPoint = "Tempo",
+			Bookmark = "CapTa",
+			TimingGroup = "Group",
+			EditorLayer = "Layer",
+			
+			Scroll = "ScrollVelocity",
+			Factor = "ScrollSpeedFactor",
+			Object = "HitObject",
+			Tempo = "TimingPoint",
+			CapTa = "Bookmark",
+			Group = "TimingGroup",
+			Layer = "EditorLayer",
+		}, {
+			[1] = "ScrollVelocity",
+			[2] = "ScrollSpeedFactor",
+			[3] = "HitObject",
+			[4] = "TimingPoint",
+			[5] = "Bookmark",
+			[6] = "TimingGroup",
+			[7] = "EditorLayer",
+		}, {
+			[1] = "Scroll",
+			[2] = "Factor",
+			[3] = "Object",
+			[4] = "Tempo",
+			[5] = "CapTa",
+			[6] = "Group",
+			[7] = "Layer",
+		}
+	end
+	local All, Old, New = Conversions()
+	for i = 1, #Old do
+		if false
+			or i == 6 -- Group
+			or i == 7 -- Layer
+		then
+			goto continue
+		end
+		action["Remove"..New[i].."s"] = actions["Remove"..Old[i].."Batch"]
+		action["Remove"..New[i]] = actions["Remove"..Old[i]]
+		::continue::
+	end
+end
+declutter.Types.Factors = || gui.Text[[Factors]]
+declutter.Types.Objects = || gui.Text[[Objects]]
+declutter.Types.Tempos = || gui.Text[[Tempos]]
+declutter.Types.Captas = || gui.Text[[Captas]]
+declutter.Types:kill()
+
 
 menu["Create"].Active = true
 def_menu = table.copy(menu)
@@ -3949,14 +4436,15 @@ local clock = os.clock
 local function main()
 	local bench = clock()
 	update()
+	for i, fnc in next, Render do
+		fnc(i)
+	end
 	for _, window in pairs(plugin.render) do
 		window()
 	end
 	if blealpha then
 		gui.PushStyleVar("Alpha", .33)
 	end
-	-- gui.SetNextWindowPos{200, 200}
-	-- print()
 	gui.NextWindowSizeClamp(plugin.mini, plugin.maxi)
 	local acti, open = gui.Begin(plugin.name, true, plugin.flag)
 	if not(acti) then
@@ -3966,6 +4454,9 @@ local function main()
 	end
 	gui.BeginDisabled(blealpha)
 	local width = gui.GetWindowRegionAvailWidth()
+	for i, fnc in next, Render.OnPlugin do
+		fnc(i, width)
+	end
 	for _, item in pairs(plugin.renderOnPlugin) do
 		item(width)
 	end
@@ -3982,50 +4473,60 @@ local function main()
 	gui.CloseDisabled()
 	-- gui.SetItemTooltip[[ffff]]
 	gui.Close()
-	
 	if global.lagControl then
 		if clock() - bench > 0.1 then
 			if global.collapseOnLag then gui.SetWindowCollapsed(plugin.name, true) end
-			error("\nLAG! please reset the editor if this repeats!")
-			-- draw = isolate
+			local old = clock()
+			isolate(function()
+				local new = clock()
+				if old - new <= 0.1 then return true end
+			end)
 		end
 	else
 		global.lagControl = true
 	end
 end
-function isolate()
-	if (1000/state.DeltaTime) > 500 then
-		draw = main
-	else
+local openingtext = {string = "regular"; rarity = 0/0}
+function isolate(fnc)
+	local old = draw
+	draw = function()
+		if fnc() then draw = old end
 	end
 end
-local openingtext = {string = "regular"; rarity = 0/0}
-
-function awake()
+local function awake()
 	local read = read()
 	if read then
-		for i, v in pairs(global) do
+		for i in pairs(global) do
 			read[i] = expr(read[i])
 			if read[i] ~= nil then
 				global[i] = read[i]
 			end
 		end
 		if global.noteinfo then
-			render("NoteInfoWidget", addon.NoteInfoWidget)
+			reRender("NoteInfoWidget", addon.NoteInfoWidget)
 		end
 	end
-	plugin.menutext = [[Welcome to ADDtHER!Al]]
-	for _, func in ipairs(awaken) do
-		func()
+	if global.advanced then
+		advancedmodeon()
+	else
+		advancedmodeoff()
 	end
+	plugin.menutext = [[Welcome to ADDtHER!Al]]
 	
-	-- listen(function(EVENT)
-		-- local typ = tostring(EVENT.Type):lower()
-		-- local read = read()
-		-- read["Last Action"] = typ
-		-- write(read)
-		-- print(typ)
-	-- end)
+	for i = 1, #Awaken do Awaken[i](); Awaken[i] = nil; end
+	for _, fnc in next, Awaken do fnc() end
 	gui.SetNextWindowCollapsed(false)
-	draw = main
+	
+end
+
+function draw()
+	if true
+		and imgui
+		and utils
+		and map
+		and state
+	then
+		awake()
+		draw = main
+	end
 end
